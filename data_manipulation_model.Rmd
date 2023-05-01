@@ -1,0 +1,496 @@
+---
+title: "Data Manipulation For Model"
+author: "Molly Sauter"
+date: "2022-11-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+library(tidyverse)
+library(dplyr)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Clean Raw Data
+
+Read in the raw data and create clean variables for the flu type.
+```{r types}
+flu_dat <- read.csv("PHIRST Nasopharyngeal specimens 2016-2018 Flu 2022-05-03 (1).csv")
+flu_dat$TYPE <- NA
+flu_dat$CT <- NA
+flu_dat <- flu_dat %>%
+  select(indid, funum, fuid, npsdatecol, TYPE, CT, everything()) 
+
+# Types
+flu_dat$TYPE <- ifelse(flu_dat$npsinfa == "1" & flu_dat$npsh3 == "1" 
+                      & flu_dat$npsinfb == "0" & flu_dat$npsh1 == "0", "AH3", flu_dat$TYPE)
+flu_dat$TYPE <- ifelse(flu_dat$npsinfa == "1" & flu_dat$npsh1 == "1" 
+                      & flu_dat$npsinfb == "0" & flu_dat$npsh3 == "0", "AH1", flu_dat$TYPE)
+flu_dat$TYPE <- ifelse(flu_dat$npsinfb == "1" & flu_dat$npsyam == "1" 
+                      & flu_dat$npsinfa == "0" & flu_dat$npsvic == "0", "BYam", flu_dat$TYPE)
+flu_dat$TYPE <- ifelse(flu_dat$npsinfb == "1" & flu_dat$npsvic == "1" 
+                      & flu_dat$npsinfa == "0" & flu_dat$npsyam == "0", "BVic", flu_dat$TYPE)
+flu_dat$TYPE <- ifelse((flu_dat$npsinfa == "1" & flu_dat$npsh1 == "0" &  flu_dat$npsh3 == "0") &
+                        flu_dat$npsinfb == "0" 
+                      | (flu_dat$npsinfa == "1" & is.na(flu_dat$npsh1) & is.na(flu_dat$npsh3)), 
+                      "ANoSub", flu_dat$TYPE)
+flu_dat$TYPE <- ifelse((flu_dat$npsinfb == "1" & flu_dat$npsinfa == "0" & flu_dat$npsyam == "0" &  flu_dat$npsvic == "0") 
+                      | (flu_dat$npsinfb == "1" & flu_dat$npsinfa == "0" & is.na(flu_dat$npsyam) & is.na(flu_dat$npsvic)), 
+                      "BNoSub", flu_dat$TYPE)
+
+# Variable to denote unsubtyped sample
+flu_dat[ ,'unsub_sam'] <- NA 
+flu_dat$unsub_sam <- ifelse(flu_dat$TYPE == "ANoSub", 1, flu_dat$unsub_sam)
+flu_dat$unsub_sam <- ifelse(flu_dat$TYPE == "BNoSub", 1, flu_dat$unsub_sam)
+
+# Check ANoSub
+flu_dat$TYPE <- ifelse(flu_dat$TYPE == "ANoSub" & lag(flu_dat$TYPE, n=1) != "ANoSub" 
+                      & (lag(flu_dat$npsinfb, n=1) != 1) & !is.na(lag(flu_dat$TYPE, n=1)), 
+                      lag(flu_dat$TYPE, n=1), flu_dat$TYPE) 
+flu_dat$TYPE <- ifelse(flu_dat$TYPE == "ANoSub" & lag(flu_dat$TYPE, n=2) != "ANoSub" 
+                      & (lag(flu_dat$npsinfb, n=2) != 1) & !is.na(lag(flu_dat$TYPE, n=2)), 
+                      lag(flu_dat$TYPE, n=2), flu_dat$TYPE) 
+flu_dat$TYPE <- ifelse(flu_dat$TYPE == "ANoSub" & lead(flu_dat$TYPE, n=1) != "ANoSub" 
+                      & (lead(flu_dat$npsinfb, n=1) != 1) & !is.na(lead(flu_dat$TYPE, n=1)), 
+                      lead(flu_dat$TYPE, n=1), flu_dat$TYPE) 
+flu_dat$TYPE <- ifelse(flu_dat$TYPE == "ANoSub" & lead(flu_dat$TYPE, n=2) != "ANoSub" 
+                      & (lead(flu_dat$npsinfb, n=2) != 1) & !is.na(lead(flu_dat$TYPE, n=2)), 
+                      lead(flu_dat$TYPE, n=2), flu_dat$TYPE) 
+
+# Check BNoSub
+flu_dat$TYPE <- ifelse(flu_dat$TYPE == "BNoSub" & lag(flu_dat$TYPE, n=1) != "BNoSub" 
+                      & (lag(flu_dat$npsinfa, n=1) != 1) & !is.na(lag(flu_dat$TYPE, n=1)), 
+                      lag(flu_dat$TYPE, n=1), flu_dat$TYPE) 
+flu_dat$TYPE <- ifelse(flu_dat$TYPE == "BNoSub" & lag(flu_dat$TYPE, n=2) != "BNoSub" 
+                      & (lag(flu_dat$npsinfa, n=2) != 1) & !is.na(lag(flu_dat$TYPE, n=2)), 
+                      lag(flu_dat$TYPE, n=2), flu_dat$TYPE) 
+flu_dat$TYPE <- ifelse(flu_dat$TYPE == "BNoSub" & lead(flu_dat$TYPE, n=1) != "BNoSub" 
+                      & (lead(flu_dat$npsinfa, n=1) != 1) & !is.na(lead(flu_dat$TYPE, n=1)), 
+                      lead(flu_dat$TYPE, n=1), flu_dat$TYPE) 
+flu_dat$TYPE <- ifelse(flu_dat$TYPE == "BNoSub" & lead(flu_dat$TYPE, n=2) != "BNoSub" 
+                      & (lead(flu_dat$npsinfa, n=2) != 1) & !is.na(lead(flu_dat$TYPE, n=2)), 
+                      lead(flu_dat$TYPE, n=2), flu_dat$TYPE) 
+
+# Coinfection with AH3BVic -- only 1, it occurs in Agincourt in 2016
+flu_dat$TYPE <- ifelse(flu_dat$npsinfa == "1" & flu_dat$npsh3 == "1" & flu_dat$npsinfb == "1" 
+                      & (flu_dat$npsyam == "0" | is.na(flu_dat$npsyam)), "AH3BVic", flu_dat$TYPE)
+# Coinfection with AH3BYam - 2, occur in Klerksdorp, in 2017
+flu_dat$TYPE <- ifelse(flu_dat$npsinfa == "1" & flu_dat$npsh3 == "1" & flu_dat$npsinfb == "1" 
+                      & flu_dat$npsyam == "1", "AH3BYam", flu_dat$TYPE)
+# Coinfection with AH3H1 - 22, occurred in both 2016 and 2017, both sites
+flu_dat$TYPE <- ifelse(flu_dat$npsinfa == "1" & flu_dat$npsh3 == "1" & flu_dat$npsh1 == "1" 
+                      & !is.na(flu_dat$npsh3) & !is.na(flu_dat$npsh1), 
+                      "AH3H1", flu_dat$TYPE)
+# Coinfection with BYamVic - 2, occurred in 2016, in both sites
+flu_dat$TYPE <- ifelse(flu_dat$npsinfb == "1" & flu_dat$npsyam == "1" & flu_dat$npsvic == "1"
+                      & !is.na(flu_dat$npsyam) & !is.na(flu_dat$npsvic), 
+                      "BYamVic", flu_dat$TYPE)
+
+flu_dat$TYPE <- ifelse(flu_dat$flu == "Neg", "Negative", flu_dat$TYPE)
+flu_dat$TYPE <- ifelse(flu_dat$flu == "", "Missing", flu_dat$TYPE)
+
+```
+
+Add in individual profile information and clean variables where necessary.
+```{r profile}
+primary_l <- c(unique(flu_dat$indid))
+profile <- read.csv('PHIRST Individual 2016-2018 2022-05-03.csv') %>%
+  rename(indid = ind_id)%>% 
+  rename(age = age_cat_at_consent) %>%
+  filter(indid %in% primary_l)
+flu_dat <- flu_dat %>%
+  left_join(profile, by = "indid") 
+
+# Clean date
+flu_dat$date <- NA  
+flu_dat$npsdatecol <- as.Date(flu_dat$npsdatecol, format = "%d/%m/%Y")
+flu_dat$date <- ifelse(flu_dat$year == 2016, as.integer(flu_dat$npsdatecol - as.Date("2016-05-02")), flu_dat$date)
+flu_dat$date <- ifelse(flu_dat$year == 2017, as.integer(flu_dat$npsdatecol - as.Date("2017-01-16")), flu_dat$date)
+flu_dat$date <- ifelse(flu_dat$year == 2018, as.integer(flu_dat$npsdatecol - as.Date("2018-01-15")), flu_dat$date)
+
+# Clean age categories
+flu_dat$age_cat <- NA 
+flu_dat$age_cat <- ifelse(flu_dat$age <= 4, "<5", flu_dat$age_cat)
+flu_dat$age_cat <- ifelse(flu_dat$age >= 5 & flu_dat$age <= 11, "5-11", flu_dat$age_cat)
+flu_dat$age_cat <- ifelse(flu_dat$age >= 12 & flu_dat$age <= 18, "12-18", flu_dat$age_cat)
+flu_dat$age_cat <- ifelse(flu_dat$age >= 19 & flu_dat$age <= 40, "19-40", flu_dat$age_cat)
+flu_dat$age_cat <- ifelse(flu_dat$age >= 41, ">40", flu_dat$age_cat)
+
+# Clean HIV variable 1) for positive/negative 2) for immune suppression as measured by 
+flu_dat$HIV <- NA
+flu_dat$HIV <- ifelse(flu_dat$arv_current_vl == "Positive" | flu_dat$arv_current_vl == "Yes", "HIV Positive", flu_dat$HIV)
+flu_dat$HIV <- ifelse(flu_dat$arv_current_vl == "HIV negative" | flu_dat$arv_current_vl == "Negative" | flu_dat$arv_current_vl == "No", "HIV Negative", flu_dat$HIV)
+flu_dat$HIV <- ifelse(flu_dat$arv_current_vl == "HIV status not known" | flu_dat$arv_current_vl == "Unknown", "HIV Unknown", flu_dat$HIV)
+
+flu_dat$suppression_clean <- ifelse(flu_dat$suppression_clean == "Unknown", "No viral load results available", flu_dat$suppression_clean)
+flu_dat$suppression_clean <- ifelse(flu_dat$suppression_clean == "Yes", "Suppressed throughout", flu_dat$suppression_clean)
+flu_dat$suppression_clean <- ifelse(flu_dat$suppression_clean == "No", "Never suppressed", flu_dat$suppression_clean)
+flu_dat$suppression_clean <- ifelse(flu_dat$suppression_clean == "Unknown", "No viral load results available", flu_dat$suppression_clean)
+
+# Clean BMI --- need to clean up data first
+
+flu_dat <- flu_dat %>%
+  select(indid, fuid, npsdatecol, date, year, sex, TYPE, CT, site, age, age_cat, HIV, suppression_clean, everything())
+
+rm(profile, primary_l)
+```
+
+## Dealing with un-subtyped samples. 
+First assign type based on whether or not there is a positively subtyped sample within two samples (done in first section), then assign the rest based on the dominate strain circulating during that year. (Un-subtyped samples of type A in 2016 are excluded since their subtype could not be reliably assumed.) Once clustered, this effectively means that unsubtyped samples would be subtyped if there is a positive subtype sample within 14 days. 
+```{r unsub}
+# Here assign further based on dominate circulating strain
+flu_dat$TYPE <- ifelse(flu_dat$TYPE == "ANoSub" & flu_dat$year == 2017, "AH3", flu_dat$TYPE)
+flu_dat$TYPE <- ifelse(flu_dat$TYPE == "ANoSub" & flu_dat$year == 2018, "AH1", flu_dat$TYPE)
+flu_dat$TYPE <- ifelse(flu_dat$TYPE == "BNoSub" & flu_dat$year == 2016, "BVic", flu_dat$TYPE)
+flu_dat$TYPE <- ifelse(flu_dat$TYPE == "BNoSub" & flu_dat$year == 2017, "BYam", flu_dat$TYPE)
+flu_dat$TYPE <- ifelse(flu_dat$TYPE == "BNoSub" & flu_dat$year == 2018, "BVic", flu_dat$TYPE)
+
+# Remove TYPE A un-subtyped from 2016 
+flu_dat <- flu_dat %>%
+  filter(TYPE != "ANoSub")
+```
+
+## Co-Infections
+Create a label for co-infections and then create new observations for them. 
+```{r coinfections}
+
+co_dat <- flu_dat %>% 
+  filter(TYPE == "AH3H1" | TYPE == "AH3BVic" | TYPE == "BYamVic" | TYPE == "AH3BYam")
+for (i in 1:nrow(co_dat)) {
+  co_dat <- co_dat %>%
+    rbind(co_dat[i,])
+}
+co_dat <- co_dat %>%
+  arrange(fuid) %>%
+  # also going to add identifier to the new fuid
+  mutate(fuid_co = fuid)
+
+# go by each type of coinfection
+h3h1 <- co_dat %>%
+  filter(TYPE == "AH3H1")
+h3h1$TYPE <- ifelse(h3h1$fuid_co == lead(h3h1$fuid_co), "AH3", h3h1$TYPE) 
+h3h1$TYPE <- ifelse(h3h1$fuid_co == lag(h3h1$fuid_co) & !is.na(lag(h3h1$fuid_co)), "AH1", h3h1$TYPE)
+h3h1$fuid_co <- ifelse(h3h1$fuid_co == lag(h3h1$fuid_co) & !is.na(lag(h3h1$fuid_co)), paste(h3h1$fuid_co, "-1"), h3h1$fuid_co)
+
+byamvic <- co_dat %>%
+  filter(TYPE == "BYamVic")
+byamvic$TYPE <- ifelse(byamvic$fuid_co == lead(byamvic$fuid_co), "BYam", byamvic$TYPE)
+byamvic$TYPE <- ifelse(byamvic$fuid_co == lag(byamvic$fuid_co) & !is.na(lag(byamvic$fuid_co)), "BVic", byamvic$TYPE)
+byamvic$fuid_co <- ifelse(byamvic$fuid_co == lag(byamvic$fuid_co) & !is.na(lag(byamvic$fuid_co)), paste(byamvic$fuid_co, "-1"), byamvic$fuid_co)
+
+h3bns <- co_dat %>%
+  filter(TYPE == "AH3BVic")
+h3bns$TYPE <- ifelse(h3bns$fuid_co == lead(h3bns$fuid_co), "AH3", h3bns$TYPE)
+h3bns$TYPE <- ifelse(h3bns$fuid_co == lag(h3bns$fuid_co) & !is.na(lag(h3bns$fuid_co)), "BVic", h3bns$TYPE)
+h3bns$fuid_co <- ifelse(h3bns$fuid_co == lag(h3bns$fuid_co) & !is.na(lag(h3bns$fuid_co)), paste(h3bns$fuid_co, "-1"), h3bns$fuid_co)
+
+h3byam <- co_dat %>%
+  filter(TYPE == "AH3BYam")
+h3byam$TYPE <- ifelse(h3byam$fuid_co == lead(h3byam$fuid_co), "AH3", h3byam$TYPE)
+h3byam$TYPE <- ifelse(h3byam$fuid_co == lag(h3byam$fuid_co) & !is.na(lag(h3byam$fuid_co)), "BYam", h3byam$TYPE)
+h3byam$fuid_co <- ifelse(h3byam$fuid_co == lag(h3byam$fuid_co) & !is.na(lag(h3byam$fuid_co)), paste(h3byam$fuid_co, "-1"), h3byam$fuid_co)
+
+coinf_refine <- h3h1 %>%
+  rbind(byamvic, h3bns, h3byam) %>%
+  # create variable to note the co-infection is occurring
+  mutate(coinfect = 1)
+
+# combine with other data to make refined data 
+non_coinf <- flu_dat %>%
+  filter(TYPE == "Missing" | TYPE == "Negative" | TYPE == "AH1" | TYPE == "AH3" |TYPE == "BYam" | TYPE == "BVic" | TYPE == "ANoSub" | TYPE == "BNoSub") %>%
+  mutate(coinfect = 0,fuid_co = fuid) 
+
+flu_dat <- non_coinf %>%
+  rbind(coinf_refine) %>%
+  arrange(fuid) %>%
+  select(1:2, fuid_co, 3:9, coinfect, everything())
+
+rm(byamvic, co_dat, coinf_refine, h3bns, h3byam, h3h1, non_coinf, i)
+```
+
+## Cluster samples for infection
+Clustering algorithm to pair together samples in an infection, with new infections defined by the presence of a new strain or two weeks of negative samples since the previous positive samples. 
+```{r cluster}
+clus <- flu_dat %>%
+  filter(flu == "Pos")
+
+clus$type_num <- NA
+clus$type_num <- ifelse(clus$TYPE == "AH3", 0, clus$type_num)
+clus$type_num <- ifelse(clus$TYPE == "AH1", 15, clus$type_num)
+clus$type_num <- ifelse(clus$TYPE == "BYam", 30, clus$type_num)
+clus$type_num <- ifelse(clus$TYPE == "BVic", 45, clus$type_num)
+
+indid_l <- unique(c(clus$indid))
+clusters <- c()
+
+for (n in indid_l) {
+  #subset data for that individual
+  sub <- clus %>%
+    filter(indid == n) 
+  if (nrow(sub) == 1) {
+    clusters <- c(clusters, 1)
+  }
+  if (nrow(sub) > 1) {
+    sub <- sub %>%
+      arrange(fuid) %>%
+      select(date, type_num)
+    sub_dist <- dist(sub, method = "euclidean")
+    hc_sub <- hclust(sub_dist, method = "single")
+    
+    clusters <- c(clusters, cutree(hc_sub, h = 14))
+  }
+}
+
+clus$infcluster <- clusters
+clus <- clus %>% 
+  # making new variable to combine indid and the cluster/infection number (easier to work with later)
+  mutate(indid_inf = paste(indid, "_I", infcluster, sep = "")) %>%
+  select(- type_num)
+neg <- flu_dat %>%
+  filter(flu != "Pos") %>%
+  mutate(infcluster = NA) %>% 
+  mutate(indid_inf = NA)
+flu_dat <- clus %>%
+  rbind(neg) %>%
+  arrange(fuid) %>%
+  select(1:7, infcluster, indid_inf, everything())
+
+rm(clus, hc_sub, neg, sub, clusters, indid_l, n, sub_dist)
+```
+
+## Reinfections
+Want to create one variable to denote if reinfection is of the same type and another to denote 
+```{r reinfections}
+
+# make a new data frame that will only contain the first event of each of the infections
+one_dat <- data.frame()
+indid_inf <- unique(flu_dat$indid_inf[which(!is.na(flu_dat$indid_inf))])
+for (n in indid_inf) {
+  sub <- flu_dat %>%
+    filter(indid_inf == n)
+  one_dat <- rbind(one_dat, sub[1, ])
+}
+
+# make variable for matching type and matching subtype
+# can manually count up occurrences due to coinfections and subtract those out
+one_dat$sametype <- NA
+
+for(i in 1:nrow(one_dat)) {
+  if(one_dat$infcluster[i] == 1) {
+    next()
+  }
+  # if second instance then compare to just one prior
+  if(one_dat$infcluster[i] == 2 & one_dat$flutp[i] == one_dat$flutp[i - 1]) {
+    one_dat$sametype[i] <- 1 
+  }
+  if(one_dat$infcluster[i] == 2 & is.na(one_dat$sametype[i])) {
+    one_dat$sametype[i] <- 0 
+  }
+
+  # if third instance then compare to both prior
+  if(one_dat$infcluster[i] == 3 & one_dat$flutp[i] == one_dat$flutp[i - 1] &
+    one_dat$flutp[i] == one_dat$flutp[i-2]) {
+    one_dat$sametype[i] <- 1 
+  }
+  if(one_dat$infcluster[i] == 3 & is.na(one_dat$sametype[i])) {
+    one_dat$sametype[i] <- 0 
+  }
+
+  # if fourth instance then compare to three prior
+  if(one_dat$infcluster[i] == 4 & one_dat$flutp[i] == one_dat$flutp[i - 1] & 
+     one_dat$flutp[i] == one_dat$flutp[i-2] & one_dat$flutp[i] == one_dat$flutp[i-3]) {
+    one_dat$sametype[i] <- 1 
+  }
+  if(one_dat$infcluster[i] == 4 & is.na(one_dat$sametype[i])) {
+    one_dat$sametype[i] <- 0 
+  }
+
+  # if fifth instance then compare to four prior
+  if(one_dat$infcluster[i] == 5 & one_dat$flutp[i] == one_dat$flutp[i - 1] &
+     one_dat$flutp[i] == one_dat$flutp[i-2] & one_dat$flutp[i] == one_dat$flutp[i-3] &
+     one_dat$flutp[i] == one_dat$flutp[i-4]) {
+    one_dat$sametype[i] <- 1 
+  }
+  if(one_dat$infcluster[i] == 5 & is.na(one_dat$sametype[i])) {
+    one_dat$sametype[i] <- 0 
+  }
+}
+
+# recombine with the rest of the data
+ind <- c(unique(one_dat$fuid_co))
+all_dat <- flu_dat %>%
+  filter(!(fuid_co %in% ind)) %>%
+  mutate(sametype = NA)
+
+flu_dat <- all_dat %>%
+  rbind(one_dat) %>%
+  arrange(fuid) %>%
+  select(1:9, sametype, everything())
+
+rm(all_dat, i, ind)
+```
+
+## CT Value
+Using the Ct value from the detection assay so that all come from shared probe with a shared limit of detection.
+```{r}
+# CT
+flu_dat$CT <- ifelse(flu_dat$TYPE == "AH3" | flu_dat$TYPE == "AH1", flu_dat$npsinfact, flu_dat$CT)
+flu_dat$CT <- ifelse(flu_dat$TYPE == "BYam" | flu_dat$TYPE == "BVic", flu_dat$npsinfbct, flu_dat$CT)
+flu_dat$CT <- ifelse(flu_dat$TYPE == "Negative", 37, flu_dat$CT)
+```
+
+## Reducing data frame for model
+
+Removing individuals who do not have any infection episodes. Excluding infection episodes that have two missing episodes before or after the start or end of the episode, and episodes that are cutoff by the start or the end of a collection period. Remove samples that are missing. 
+```{r exclusions}
+
+# Going to make second data frame for model with exclusions
+model_dat <- flu_dat
+
+# Incomplete episodes
+model_dat$start <- NA 
+model_dat$end <- NA 
+indid_inf <- unique(model_dat$indid_inf[which(!is.na(model_dat$indid_inf))])
+new_dat <- data.frame()
+for(n in indid_inf){
+  sub <- model_dat %>%
+    filter(indid_inf == n)
+  sub$start[1] <- 1
+  sub$end[nrow(sub)] <- 1
+  new_dat <- rbind(new_dat, sub)
+} 
+neg <- model_dat %>%
+  filter(TYPE == "Missing" | TYPE == "Negative")
+new_dat <- rbind(new_dat, neg) %>%
+  arrange(fuid)
+start_miss <- c(unique(new_dat$indid_inf[which(new_dat$start == 1 & lag(new_dat$TYPE) == "Missing" & lag(new_dat$TYPE, n = 2) == "Missing")])) # 19 of these episode
+end_miss <- c(unique(new_dat$indid_inf[which(new_dat$end == 1 & lead(new_dat$TYPE) == "Missing" & lead(new_dat$TYPE, n = 2) == "Missing")])) # 25 of these episodes 
+end_indid <- c(unique(new_dat$indid_inf[which(new_dat$end == 1 & new_dat$indid != lead(new_dat$indid))])) # 20 of these episodes
+exclude <- unique(c(start_miss, end_miss, end_indid)) # 62 total episodes to be excluded 
+model_dat <- model_dat %>%
+  filter(!(indid_inf %in% exclude))
+
+# Remove individuals who do not have any infection episode or only had an episode previously excluded
+infect <- c(unique(model_dat$indid[which(model_dat$infcluster >=1)]))
+model_dat <- model_dat %>%
+  filter(indid %in% infect)
+
+# remove 
+rm(neg, new_dat, sub, end_indid, end_miss, exclude, indid_inf, start_miss, n, infect)
+
+# Missing samples 
+model_dat <- model_dat %>%
+  filter(TYPE != "Missing")
+
+```
+
+## Clean up infection episode data for model
+Need to create a two week bubble around the positive samples of an infection for the model. For co-infections this requires doubling data points. 
+```{r}
+# want to first double for those with 2 (either coinfection or reinfection)
+two <- c(unique(model_dat$indid[which(model_dat$infcluster == 2)]))
+for (i in two) {
+  sub <- model_dat %>%
+    filter(indid == i)
+  neg <- sub %>%
+    filter(is.na(indid_inf)) %>%
+    mutate(indid_inf = paste(i, "_I", 2, sep = ""))
+  sub$indid_inf <- ifelse(is.na(sub$indid_inf), paste(i, "_I", 1, sep = ""), sub$indid_inf)
+  model_dat <- model_dat %>%
+    filter(indid != i) %>%
+    rbind(sub, neg) %>%
+    arrange(fuid)
+  rm(sub, neg)
+}
+rm(i, two)
+
+# Make another if there is a third infection
+three <- c(unique(model_dat$indid[which(model_dat$infcluster == 3)]))
+for (i in three) {
+  add <- model_dat %>%
+    filter(indid == i & TYPE == "Negative" & indid_inf == paste(i, "_I", 1, sep = "")) %>%
+    mutate(indid_inf = paste(i, "_I", 3, sep = ""))
+  model_dat <- model_dat %>%
+    rbind(add) %>%
+    arrange(fuid)
+  rm(add)
+}
+rm(i, three)
+
+# for four
+four <- c(unique(model_dat$indid[which(model_dat$infcluster == 4)]))
+for (i in four) {
+  add <- model_dat %>%
+    filter(indid == i & TYPE == "Negative" & indid_inf == paste(i, "_I", 1, sep = "")) %>%
+    mutate(indid_inf = paste(i, "_I", 4, sep = ""))
+  model_dat <- model_dat %>%
+    rbind(add) %>%
+    arrange(fuid)
+  rm(add)
+}
+rm(i, four)
+
+# for five
+five <- c(unique(model_dat$indid[which(model_dat$infcluster == 5)]))
+for (i in five) {
+  add <- model_dat %>%
+    filter(indid == i & TYPE == "Negative" & indid_inf == paste(i, "_I", 1, sep = "")) %>%
+    mutate(indid_inf = paste(i, "_I", 5, sep = ""))
+  model_dat <- model_dat %>%
+    rbind(add) %>%
+    arrange(fuid)
+  rm(add)
+}
+rm(i, five)
+
+# And now give infection labels for remaining 
+one <- c(unique(model_dat$indid[which(is.na(model_dat$indid_inf))]))
+for (i in one) {
+  sub <- model_dat %>%
+    filter(indid == i) %>% 
+    mutate(indid_inf = paste(i, "_I", 1, sep = ""))
+  model_dat <- model_dat %>%
+    filter(indid != i  ) %>%
+    rbind(sub) %>% 
+    arrange(fuid)
+  rm(sub, i)
+}
+rm(i, one)
+
+# Some infections previously excluded might have slipped through, this is to make sure those are all removed. 
+
+
+# Center the data around a pseudo peak time, with two weeks of extra negative samples on each side of the infection. 
+id_list <- c(unique(model_dat$indid_inf[which(model_dat$infcluster >=1)]))
+mod_dat <- data.frame()
+model_dat$center_date <- NA
+for(i in id_list) {
+  sub <- model_dat %>%
+    filter(indid_inf == i)
+  tp <- c(sub$date[which(sub$CT == min(sub$CT))])
+  sub$center_date <- sub$npsdatecol[which(sub$date == tp[1])]
+  sub$date = sub$date - tp[1]
+  sub <- sub %>%
+    filter(date[which(date == min(date[which(CT != 37)]))] - date < 14 &
+             date - date[which(date == max(date[which(CT != 37)]))] < 14)
+  mod_dat <- rbind(mod_dat, sub)
+}
+
+rm(i, sub, tp, id_list)
+```
+
+## Save 
+Finally save the two data frames for easier access for running the model.
+```{r}
+write.csv(flu_dat, "full_data.csv")
+write.csv(mod_dat, "model_data.csv")
+# REMAKE ONE DAT AFTER THESE EXCLUSIONS FOR ANALYSIS
+in_model <- c(unique(mod_dat$indid_inf))
+one_dat <- one_dat %>%
+  filter(indid_inf %in% in_model)
+rm(in_model)
+write.csv(one_dat, "one_data.csv")
+```
+
+
